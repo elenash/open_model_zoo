@@ -164,6 +164,22 @@ def cut_roi(frame, roi):
 def cut_rois(frame, rois):
     return [cut_roi(frame, roi) for roi in rois]
 
+def resize_input(frame, target_shape):
+    assert len(frame.shape) == len(target_shape), \
+        "Expected a frame with %s dimensions, but got %s" % \
+        (len(target_shape), len(frame.shape))
+
+    assert frame.shape[0] == 1, "Only batch size 1 is supported"
+    n, c, h, w = target_shape
+
+    input = frame[0]
+    if not np.array_equal(target_shape[-2:], frame.shape[-2:]):
+        input = input.transpose((1, 2, 0)) # to HWC
+        input = cv2.resize(input, (w, h))
+        input = input.transpose((2, 0, 1)) # to CHW
+
+    return input.reshape((n, c, h, w))
+
 
 class Module(object):
     def __init__(self, model):
@@ -217,22 +233,6 @@ class Module(object):
         self.perf_stats = []
         self.outputs = []
 
-    def _resize(self, frame, target_shape):
-        assert len(frame.shape) == len(target_shape), \
-            "Expected a frame with %s dimensions, but got %s" % \
-            (len(target_shape), len(frame.shape))
-
-        assert frame.shape[0] == 1, "Only batch size 1 is supported"
-        n, c, h, w = target_shape
-
-        input = frame[0]
-        if not np.array_equal(target_shape[-2:], frame.shape[-2:]):
-            input = input.transpose((1, 2, 0)) # to HWC
-            input = cv2.resize(input, (w, h))
-            input = input.transpose((2, 0, 1)) # to CHW
-
-        return input.reshape((n, c, h, w))
-
 
 class FaceDetector(Module):
     class Result:
@@ -244,6 +244,22 @@ class FaceDetector(Module):
             self.confidence = output[2]
             self.position = np.array((output[3], output[4])) # (x, y)
             self.size = np.array((output[5], output[6])) # (w, h)
+
+        def _rescale_roi(self, roi_scale_factor=1.0):
+            self.position -= self.size * 0.5 * (roi_scale_factor - 1.0)
+            self.size *= roi_scale_factor
+
+        def _resize_roi(self, frame_width, frame_height):
+            self.position[0] *= frame_width
+            self.position[1] *= frame_height
+            self.size[0] = self.size[0] * frame_width - self.position[0]
+            self.size[1] = self.size[1] * frame_height - self.position[1]
+
+        def _clip(self, width, height):
+            min = [0, 0]
+            max = [width, height]
+            self.position[:] = clip(self.position, min, max)
+            self.size[:] = clip(self.size, min, max)
 
     def __init__(self, model, confidence_threshold=0.5, roi_scale_factor=1.15):
         super(FaceDetector, self).__init__(model)
@@ -269,7 +285,9 @@ class FaceDetector(Module):
 
     def preprocess(self, frame):
         assert len(frame.shape) == 4, "Frame shape should be [1, c, h, w]"
-        input = self._resize(frame, self.input_shape)
+        assert frame.shape[0] == 1
+        assert frame.shape[1] == 3
+        input = resize_input(frame, self.input_shape)
         return input
 
     def start_async(self, frame):
@@ -288,37 +306,18 @@ class FaceDetector(Module):
 
         results = []
         for output in outputs[0][0]:
-            result = self.Result(output)
+            result = FaceDetector.Result(output)
             if result.confidence < self.confidence_threshold:
                 break # results are sorted by confidence decrease
 
-            self._clip(result, 1, 1)
-            self._resize_roi(result, frame_width, frame_height)
-            self._rescale_roi(result, self.roi_scale_factor)
-            self._clip(result, frame_width, frame_height)
+            result._clip(1, 1)
+            result._resize_roi(frame_width, frame_height)
+            result._rescale_roi(self.roi_scale_factor)
+            result._clip(frame_width, frame_height)
 
             results.append(result)
 
         return results
-
-    def _rescale_roi(self, result, roi_scale_factor=1.0):
-        result.position -= result.size * 0.5 * (roi_scale_factor - 1.0)
-        result.size *= roi_scale_factor
-        return result
-
-    def _resize_roi(self, result, frame_width, frame_height):
-        result.position[0] *= frame_width
-        result.position[1] *= frame_height
-        result.size[0] = result.size[0] * frame_width - result.position[0]
-        result.size[1] = result.size[1] * frame_height - result.position[1]
-        return result
-
-    def _clip(self, result, width, height):
-        min = [0, 0]
-        max = [width, height]
-        result.position[:] = clip(result.position, min, max)
-        result.size[:] = clip(result.size, min, max)
-        return result
 
 
 class LandmarksDetector(Module):
@@ -338,6 +337,9 @@ class LandmarksDetector(Module):
         def __getitem__(self, idx):
             return self.points[idx]
 
+        def get_array(self):
+            return np.array(self.points, dtype=np.float64)
+
     def __init__(self, model):
         super(LandmarksDetector, self).__init__(model)
 
@@ -356,7 +358,7 @@ class LandmarksDetector(Module):
     def preprocess(self, frame, rois):
         assert len(frame.shape) == 4, "Frame shape should be [1, c, h, w]"
         inputs = cut_rois(frame, rois)
-        inputs = [self._resize(input, self.input_shape) for input in inputs]
+        inputs = [resize_input(input, self.input_shape) for input in inputs]
         return inputs
 
     def enqueue(self, input):
@@ -369,18 +371,22 @@ class LandmarksDetector(Module):
 
     def get_landmarks(self):
         outputs = self.get_outputs()
-        results = [ self.Result(out[self.output_blob].reshape((-1, 2))) \
+        results = [ LandmarksDetector.Result(out[self.output_blob].reshape((-1, 2))) \
                     for out in outputs ]
         return results
 
 
 class FacesDatabase:
-    IMAGE_EXTENSIONS = ['.jpg', '.png']
+    IMAGE_EXTENSIONS = ['jpg', 'png']
 
     class Identity:
         def __init__(self, label, descriptors):
             self.label = label
             self.descriptors = descriptors
+
+        @staticmethod
+        def cosine_dist(x, y):
+            return cosine(x, y) * 0.5
 
     def __init__(self, path,
             face_identifier, landmarks_detector, face_detector=None):
@@ -388,17 +394,16 @@ class FacesDatabase:
         self.fg_path = path
         paths = []
         if osp.isdir(path):
-            ext = self.IMAGE_EXTENSIONS
             paths = [osp.join(path, f) for f in os.listdir(path) \
-                      if f.endswith(ext[0]) or f.endswith(ext[1])]
+                      if f.split('.')[-1] in self.IMAGE_EXTENSIONS]
         else:
-            raise Exception("Wrong face images database path. Expected a " \
-                            "path to the directory containing %s files, " \
-                            "but got '%s'" % \
-                            (" or ".join(self.IMAGE_EXTENSIONS), path))
+            log.error("Wrong face images database path. Expected a " \
+                      "path to the directory containing %s files, " \
+                      "but got '%s'" % \
+                      (" or ".join(self.IMAGE_EXTENSIONS), path))
 
         if len(paths) == 0:
-            raise Exception("The images database folder has no images")
+            log.error("The images database folder has no images.")
 
         self.database = []
         for num, path in enumerate(paths):
@@ -434,10 +439,11 @@ class FacesDatabase:
                 if face_detector:
                     mm = self.check_if_face_exist(descriptor, face_identifier.get_threshold())
                     if mm < 0:
-                        crop = orig_image[int(roi.position[1]):int(roi.position[1]+roi.size[1]), int(roi.position[0]):int(roi.position[0]+roi.size[0])]
+                        crop = orig_image[int(roi.position[1]):int(roi.position[1]+roi.size[1]), \
+                               int(roi.position[0]):int(roi.position[0]+roi.size[0])]
                         name = self.ask_to_save(crop)
                         if name:
-                            _ = self.dump_faces(crop, descriptor, name)
+                            self.dump_faces(crop, descriptor, name)
                 else:
                     log.debug("Adding label {} to the gallery.".format(label))
                     self.add_item(descriptor, label)
@@ -497,13 +503,13 @@ class FacesDatabase:
         return label
 
     def match_faces(self, descriptors):
-        database = self
+        database = self.database
         distances = np.empty((len(descriptors), len(database)))
         for i, desc in enumerate(descriptors):
             for j, identity in enumerate(database):
                 dist = []
                 for k, id_desc in enumerate(identity.descriptors):
-                    dist.append(self.cosine_dist(desc, id_desc))
+                    dist.append(FacesDatabase.Identity.cosine_dist(desc, id_desc))
                 distances[i][j] = dist[np.argmin(dist)]
 
         # Find best assignments, prevent repeats, assuming faces can not repeat
@@ -520,18 +526,16 @@ class FacesDatabase:
         return matches
 
     def create_new_label(self, path, id):
-        ppp = "{}{}.jpg".format("face", id)
-        pp = osp.join(path, ppp)
-        if osp.exists(pp):
-            pp = self.create_new_label(path, id+1)
-        return osp.splitext(osp.basename(pp))[0]
+        while osp.exists(osp.join(path, "face{}.jpg".format(id))):
+            id += 1
+        return "face{}".format(id)
 
     def check_if_face_exist(self, desc, threshold):
         match = -1
         for j, identity in enumerate(self.database):
             dist = []
             for k, id_desc in enumerate(identity.descriptors):
-                dist.append(self.cosine_dist(desc, id_desc))
+                dist.append(FacesDatabase.Identity.cosine_dist(desc, id_desc))
             if dist[np.argmin(dist)] < threshold:
                 match = j
                 break
@@ -575,7 +579,7 @@ class FacesDatabase:
             match, label = self.check_if_label_exists(label)
 
         if match < 0:
-            self.database.append(self.Identity(label, [desc]))
+            self.database.append(FacesDatabase.Identity(label, [desc]))
             log.debug("Adding label {} to the database".format(label))
         else:
             self.database[match].descriptors.append(desc)
@@ -590,19 +594,16 @@ class FacesDatabase:
     def __len__(self):
         return len(self.database)
 
-    def cosine_dist(self, x, y):
-        return cosine(x, y) * 0.5
 
 class FaceIdentifier(Module):
     # Taken from the description of the model:
     # intel_models/face-reidentification-retail-0095
-    REFERENCE_LANDMARKS = {
-        "left_eye": (30.2946 / 96, 51.6963 / 112),
-        "right_eye": (65.5318 / 96, 51.5014 / 112),
-        "nose_tip": (48.0252 / 96, 71.7366 / 112),
-        "left_lip_corner": (33.5493 / 96, 92.3655 / 112),
-        "right_lip_corner": (62.7299 / 96, 92.2041 / 112)
-    }
+    REFERENCE_LANDMARKS = [
+        (30.2946 / 96, 51.6963 / 112), # left eye
+        (65.5318 / 96, 51.5014 / 112), # right eye
+        (48.0252 / 96, 71.7366 / 112), # nose tip
+        (33.5493 / 96, 92.3655 / 112), # left lip corner
+        (62.7299 / 96, 92.2041 / 112)] # right lip corner
 
     UNKNOWN_ID = -1
     UNKNOWN_ID_LABEL = "Unknown"
@@ -644,7 +645,7 @@ class FaceIdentifier(Module):
         assert len(frame.shape) == 4, "Frame shape should be [1, c, h, w]"
         inputs = cut_rois(frame, rois)
         self._align_rois(inputs, landmarks)
-        inputs = [self._resize(input, self.input_shape) for input in inputs]
+        inputs = [resize_input(input, self.input_shape) for input in inputs]
         return inputs
 
     def enqueue(self, input):
@@ -680,18 +681,20 @@ class FaceIdentifier(Module):
     def get_descriptors(self):
         return [out[self.output_blob].flatten() for out in self.get_outputs()]
 
-    def _normalize(self, array, axis):
+    @staticmethod
+    def normalize(array, axis):
         mean = array.mean(axis=axis)
         array -= mean
         std = array.std()
         array /= std
         return mean, std
 
-    def _get_transform(self, src, dst):
+    @staticmethod
+    def get_transform(src, dst):
         assert np.array_equal(src.shape, dst.shape) and len(src.shape) == 2, \
             "2d input arrays are expected, got %s" % (src.shape)
-        src_col_mean, src_col_std = self._normalize(src, axis=(0))
-        dst_col_mean, dst_col_std = self._normalize(dst, axis=(0))
+        src_col_mean, src_col_std = FaceIdentifier.normalize(src, axis=(0))
+        dst_col_mean, dst_col_std = FaceIdentifier.normalize(dst, axis=(0))
 
         u, _, vt = np.linalg.svd(np.matmul(src.T, dst))
         r = np.matmul(u, vt).T
@@ -712,23 +715,10 @@ class FaceIdentifier(Module):
             image = image[0]
 
             scale = np.array((image.shape[-1], image.shape[-2]))
-            desired_landmarks = np.array([
-                self.REFERENCE_LANDMARKS["left_eye"],
-                self.REFERENCE_LANDMARKS["right_eye"],
-                self.REFERENCE_LANDMARKS["nose_tip"],
-                self.REFERENCE_LANDMARKS["left_lip_corner"],
-                self.REFERENCE_LANDMARKS["right_lip_corner"],
-            ], dtype=np.float64) * scale
+            desired_landmarks = np.array(self.REFERENCE_LANDMARKS, dtype=np.float64) * scale
+            landmarks = image_landmarks.get_array() * scale
 
-            landmarks = np.array([
-                image_landmarks.left_eye,
-                image_landmarks.right_eye,
-                image_landmarks.nose_tip,
-                image_landmarks.left_lip_corner,
-                image_landmarks.right_lip_corner,
-            ], dtype=np.float64) * scale
-
-            transform = self._get_transform(desired_landmarks, landmarks)
+            transform = FaceIdentifier.get_transform(desired_landmarks, landmarks)
             img = image.transpose((1, 2, 0))
             cv2.warpAffine(img, transform, tuple(scale), img,
                 flags=cv2.WARP_INVERSE_MAP)
@@ -970,7 +960,7 @@ class Visualizer:
                 break
 
             if self.input_crop is not None:
-                frame = self.center_crop(frame, self.input_crop)
+                frame = Visualizer.center_crop(frame, self.input_crop)
             detections = self.frame_processor.process(frame)
 
             self.draw_detections(frame, detections)
@@ -985,7 +975,8 @@ class Visualizer:
 
             self.update_fps()
 
-    def center_crop(self, frame, crop_size):
+    @staticmethod
+    def center_crop(frame, crop_size):
         fh, fw, fc = frame.shape
         crop_size[0] = min(fw, crop_size[0])
         crop_size[1] = min(fh, crop_size[1])
@@ -994,7 +985,7 @@ class Visualizer:
                      :]
 
     def run(self, args):
-        input_stream = open_input_stream(args.input)
+        input_stream = Visualizer.open_input_stream(args.input)
         fps = input_stream.get(cv2.CAP_PROP_FPS)
         frame_size = (int(input_stream.get(cv2.CAP_PROP_FRAME_WIDTH)),
                       int(input_stream.get(cv2.CAP_PROP_FRAME_HEIGHT)))
@@ -1003,7 +994,7 @@ class Visualizer:
             frame_size = tuple(np.minimum(frame_size, crop_size))
         log.info("Input stream info: %d x %d @ %.2f FPS" % \
             (frame_size[0], frame_size[1], fps))
-        output_stream = open_output_stream(args.output, fps, frame_size)
+        output_stream = Visualizer.open_output_stream(args.output, fps, frame_size)
 
         self.process(input_stream, output_stream)
 
@@ -1015,26 +1006,28 @@ class Visualizer:
 
         cv2.destroyAllWindows()
 
+    @staticmethod
+    def open_input_stream(path):
+        log.info("Reading input data from '%s'" % (path))
+        if path == 'cam':
+            stream = 0
+        else:
+            assert osp.isfile(path), "Input file '%s' not found" % (path)
+            stream = path
+        return cv2.VideoCapture(stream)
 
-def open_input_stream(path):
-    log.info("Reading input data from '%s'" % (path))
-    if path == 'cam':
-        stream = 0
-    else:
-        assert osp.isfile(path), "Input file '%s' not found" % (path)
-        stream = path
-    return cv2.VideoCapture(stream)
+    @staticmethod
+    def open_output_stream(path, fps, frame_size):
+        output_stream = None
+        if path != "":
+            if not path.endswith('.avi'):
+                log.warning("Output file extension is not 'avi'. " \
+                        "Some issues with output can occur, check logs.")
+            log.info("Writing output to '%s'" % (path))
+            output_stream = cv2.VideoWriter(path,
+                cv2.VideoWriter.fourcc(*'MJPG'), fps, frame_size)
+        return output_stream
 
-def open_output_stream(path, fps, frame_size):
-    output_stream = None
-    if path != "":
-        if not path.endswith('.avi'):
-            log.warning("Output file extension is not 'avi'. " \
-                    "Some issues with output can occur, check logs.")
-        log.info("Writing output to '%s'" % (path))
-        output_stream = cv2.VideoWriter(path,
-            cv2.VideoWriter.fourcc(*'MJPG'), fps, frame_size)
-    return output_stream
 
 def main():
     args = build_argparser().parse_args()

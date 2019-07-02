@@ -34,18 +34,18 @@ visualized and displayed on the screen or written to the output file.
 To recognize faces the application uses a face database, or a gallery.
 The gallery is a folder with images of persons. Each image in the gallery can
 be of arbitrary size and should contain one or more frontally-oriented faces
-with decent quality. There are allowed multiple images of the same person,
-but the naming should be specific - the names may contain '-{num_of_instance}'
-at the end. For example, there could be images 'Paul-0.jpg', 'Paul-1.jpg' etc.
-and they all will be treated as images of the same person. If a single instance
-for one person is present, the image name can be arbitrary ('Paul.jpg').
+with decent quality. There are allowed multiple images of the same person, but
+the naming format in that case should be specific - `{id}-{num_of_instance}.jpg`.
+For example, there could be images `Paul-0.jpg`, `Paul-1.jpg` etc.
+and they all will be treated as images of the same person. In case when there
+is one image per person, you can use format `{id}.jpg` (e.g. `Paul.jpg`).
 The application can use face detector during the gallery building, that is
 controlled by `--run_detector` flag. This allows gallery images to contain more
 than one face image and not to be tightly cropped. In that mode the user will
 be asked if he wants to add a specific image to the images gallery (and it
 leads to automatic dumping images to the same folder on disk). If it is, then
 the user should specify the name for the image in the open window and press
-'Enter'. If it's not, then press 'Escape'. The user may add multiple images of
+`Enter`. If it's not, then press `Escape`. The user may add multiple images of
 the same person by setting the same name in the open window. However, the
 resulting gallery needs to be checked more thoroughly, since a face detector can
 fail and produce poor crops.
@@ -56,10 +56,8 @@ Use the following name convention: `person_N_name.png` or `person_N_name.jpg`.
 ### Installation and dependencies
 
 The demo depends on:
-- OpenVINO library (R5)
+- OpenVINO library (2018R5 or newer)
 - Python (any of 2.7+ or 3.4+, which is supported by OpenVINO)
-- NumPy (>=1.11.0)
-- SciPy (>=1.1.0)
 - OpenCV (>=3.4.0)
 
 To install all the required Python modules you can use:
@@ -74,7 +72,7 @@ Running the application with the `-h` option or without
 any arguments yields the following message:
 
 ``` sh
-./face_recognition_demo.py -h
+python ./face_recognition_demo.py -h
 
 usage: face_recognition_demo.py [-h] [-i PATH] [-o PATH] [--no_show] [-tl]
                                 [-cw CROP_WIDTH] [-ch CROP_HEIGHT] -fg PATH
@@ -115,8 +113,8 @@ Faces database:
                         specific image to the images gallery (and it leads to
                         automatic dumping images to the same folder on disk).
                         If it is, then the user should specify the name for
-                        the image in the open window and press 'Enter'.
-                        If it's not, then press 'Escape'. The user may add
+                        the image in the open window and press `Enter`.
+                        If it's not, then press `Escape`. The user may add
                         new images for the same person by setting the same
                         name in the open window.
 
@@ -161,7 +159,7 @@ Linux (`sh`, `bash`, ...) (assuming OpenVINO installed in `/opt/intel/openvino`)
 # Set up the environment
 source /opt/intel/openvino/bin/setupvars.sh
 
-./face_recognition_demo.py \
+python ./face_recognition_demo.py \
 -m_fd <path_to_model>/face-detection-retail-0004.xml \
 -m_lm <path_to_model>/landmarks-regression-retail-0009.xml \
 -m_reid <path_to_model>/face-reidentification-retail-0095.xml \
