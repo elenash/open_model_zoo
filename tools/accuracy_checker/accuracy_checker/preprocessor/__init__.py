@@ -17,7 +17,7 @@ limitations under the License.
 from .preprocessing_executor import PreprocessingExecutor
 from .preprocessor import Preprocessor
 from .color_space_conversion import BgrToRgb, RgbToBgr, BgrToGray, RgbToGray, TfConvertImageDType
-from .normalization import Normalize, Normalize3d
+from .normalization import Normalize, Normalize3d, NormalizeBrats3d
 from .geometric_transformations import (
     GeometricOperationMetadata,
     Resize,
@@ -59,6 +59,7 @@ __all__ = [
     'TfConvertImageDType',
 
     'Normalize3d',
+    'NormalizeBrats3d',
     'Normalize',
 
     'DecodeByVocabulary',

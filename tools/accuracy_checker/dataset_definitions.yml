@@ -1,6 +1,6 @@
 launchers:
   - framework: dlsdk
-    cpu_extensions: AUTO
+#    cpu_extensions: AUTO
 
 datasets:
   - name: ms_coco_mask_rcnn
@@ -573,6 +573,15 @@ datasets:
       data_dir: BraTS
       ids_file: BraTS/val_ids.p
       labels_file: BraTS/labels
+    annotation: brats.pickle
+    dataset_meta: brats.json
+
+  - name: BraTS_2017
+    data_source: BraTS_2017
+    reader: nifti_brats_reader
+    annotation_conversion:
+      converter: brats
+      data_dir: BraTS_2017
     annotation: brats.pickle
     dataset_meta: brats.json
 

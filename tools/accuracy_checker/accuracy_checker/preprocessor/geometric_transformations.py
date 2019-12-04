@@ -338,6 +338,29 @@ class Resize(Preprocessor):
 
         return image
 
+class Resize3D(Preprocessor):
+    __provider__ = 'resize3d'
+
+    def process(self, image, annotation_meta=None):
+        is_simple_case = not isinstance(image.data, list) # otherwise -- pyramid, tiling, etc
+
+        def process_data(data):
+            target_size = (128,128,128)
+            data = data[:,0:target_size[0],
+                       0:target_size[1],
+                       0:target_size[2]]
+
+            return data
+
+        data = image.data
+        image.data = (
+            process_data(data) if is_simple_case else [
+                process_data(data_fragment)for data_fragment in data
+            ]
+        )
+
+        return image
+
 
 class AutoResize(Preprocessor):
     __provider__ = 'auto_resize'

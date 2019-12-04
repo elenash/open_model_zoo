@@ -43,6 +43,7 @@ from .crop_segmentation_mask import CropSegmentationMask
 from .clip_segmentation_mask import ClipSegmentationMask
 from .normalize_boxes import NormalizeBoxes
 from .resample_segmentation_prediction import SegmentationPredictionResample
+from .brats_output_to_gt_labels import SegmentationPredictionToGT
 from .extract_answers_tokens import ExtractSQUADPrediction
 from .translate_3d_poses import Translate3dPoses
 
@@ -74,6 +75,7 @@ __all__ = [
     'CropSegmentationMask',
     'ClipSegmentationMask',
     'SegmentationPredictionResample',
+    'SegmentationPredictionToGT',
 
     'NormalizeLandmarksPoints',
 

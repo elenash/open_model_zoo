@@ -53,7 +53,7 @@ class SegmentationAnnotation(SegmentationRepresentation):
         GTMaskLoader.PILLOW: 'pillow_imread',
         GTMaskLoader.OPENCV: 'opencv_imread',
         GTMaskLoader.SCIPY: 'scipy_imread',
-        GTMaskLoader.NIFTI: 'nifti_reader',
+        GTMaskLoader.NIFTI: 'nifti_brats_reader',
         GTMaskLoader.NUMPY: 'numpy_reader'
     }
 

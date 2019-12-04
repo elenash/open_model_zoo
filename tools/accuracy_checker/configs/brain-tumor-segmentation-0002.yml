@@ -1,0 +1,29 @@
+models:
+  - name: brain-tumor-segmentation-0002
+
+    launchers:
+      - framework: dlsdk
+        tags:
+          - FP32
+        model: 023r4_f128_export_nearest.xml
+        weights: 023r4_f128_export_nearest.bin
+        adapter: 
+            type: brain_tumor_segmentation
+
+    datasets:
+      - name: BraTS_2017
+
+        metrics:
+          - type: dice_index
+            median: True
+            use_argmax: False
+            presenter: print_vector
+       
+        preprocessing:
+          - type: resize3d
+          - type: normalize_brats_3d
+        
+        postprocessing:
+           - type: segmentation_prediction_to_gt
+
+global_definitions: ../dataset_definitions.yml

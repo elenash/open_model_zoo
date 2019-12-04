@@ -54,6 +54,8 @@ class BratsConverter(DirectoryBasedAnnotationConverter):
         annotations = []
         for file_in_dir in image_dir.iterdir():
             file_name = file_in_dir.parts[-1]
+            if file_name.startswith('.'): #skip file starting with a dot - nibabel can't work with such files
+                continue
             mask = mask_dir / file_name
             if not mask.exists():
                 if not check_content:

@@ -103,3 +103,21 @@ class Normalize3d(Preprocessor):
             img[:, :, :, channel] = channel_val
 
         return img
+
+class NormalizeBrats3d(Preprocessor):
+    __provider__ = "normalize_brats_3d"
+
+    def process(self, image, annotation_meta=None):
+        image.data = self.normalize_img(image.data)
+        return image
+
+    @staticmethod
+    def normalize_img(img):
+        mask = img > 0
+        num_voxels = np.sum(mask, axis=(1, 2, 3))
+        mean = np.sum(img / num_voxels[:,None,None,None], axis=(1, 2, 3))
+        mean2 = np.sum(np.square(img)/ num_voxels[:,None,None,None], axis=(1, 2, 3))
+        std = np.sqrt(mean2 - mean * mean)
+        img = (img - mean.reshape((img.shape[0],1,1,1)))/ std.reshape((img.shape[0], 1, 1, 1))
+
+        return img

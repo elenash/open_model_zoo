@@ -291,6 +291,18 @@ class NiftiImageReader(BaseReader):
 
         return image
 
+class NiftiBratsImageReader(BaseReader):
+    __provider__ = 'nifti_brats_reader'
+
+    def read(self, data_id):
+        nib_image = nib.load(str(get_path(self.data_source / data_id)))
+        image = np.array(nib_image.dataobj)
+        if len(image.shape) == 4:
+            image = np.transpose(image, (3,0,1,2))
+            #swap modalities
+            image = image[[1,2,3,0],:,:,:]
+
+        return image
 
 class NumPyReader(BaseReader):
     __provider__ = 'numpy_reader'
