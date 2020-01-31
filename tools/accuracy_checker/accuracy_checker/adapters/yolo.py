@@ -130,10 +130,17 @@ class YoloV2Adapter(Adapter):
         """
         predictions = self._extract_predictions(raw, frame_meta)[self.output_blob]
 
-        cells_x, cells_y = 13, 13
+        #cells_x, cells_y = 13, 13
+        #cells_x, cells_y = 19, 19
 
         result = []
         for identifier, prediction in zip(identifiers, predictions):
+            # for 416x416 input cells should be 13, for 608x608 input - 19.
+            # it can be calculated, but it's better to add configuration parameter (e.g. side)
+            # for that in adapter, as it's done in benchmark's config.
+            # temporary fix - just to run the job for accuracy validation.
+            cells_x = int(math.sqrt(prediction.shape[0] / ((self.classes + 5) * self.num)))
+            cells_y = int(math.sqrt(prediction.shape[0] / ((self.classes + 5) * self.num)))
             labels, scores, x_mins, y_mins, x_maxs, y_maxs = [], [], [], [], [], []
             if len(np.shape(prediction)) == 3:
                 prediction = prediction.flatten()
